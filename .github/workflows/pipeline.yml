@@ -1,15 +1,14 @@
-# Nome do Workflow
 name: DevOpsLab Pipeline
 
-# Evento que irá acionar a pipeline
 on: 
   push:
     branches:
       - main
 
 jobs:
-  Build:
+  UnitTest:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v2
@@ -17,26 +16,41 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v2
         with:
-          python-version: '3.7.11'
+          python-version: '3.10'
 
       - name: Install Requirements
-        run:  pip install flask flask-wtf
-              
+        run:  pip install flask
+
       - name: Unit Test
         run: python -m unittest -v test
 
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      
-      - name: Login HCR
+  SonarCloud:
+      name: SonarCloud
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v2
+          with:
+            fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+        - name: SonarCloud Scan
+          uses: SonarSource/sonarcloud-github-action@master
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
+            SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  Build:
+      needs: [UnitTest,SonarCloud ]
+      name: Build
+      runs-on: ubuntu-latest
+      steps: 
+        - name: Checkout Repo
+          uses: actions/checkout@v2
+
+        - name: Login to Heroku Container registry
           env: 
             HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
           run: heroku container:login
 
-      - name: Docker Image
+        - name: Docker Image & Push Heroku Registry
           env:
             HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
           run: heroku container:push -a ${{ secrets.HEROKU_APP_NAME }} web
@@ -45,7 +59,8 @@ jobs:
     needs: Build
     runs-on: ubuntu-latest
 
+    steps:
       - name: Deploy Heroku
-          env:
-            HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
-          run: heroku container:release -a ${{ secrets.HEROKU_APP_NAME }} web
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: heroku container:release -a ${{ secrets.HEROKU_APP_NAME }} web
